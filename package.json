@@ -98,5 +98,15 @@
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.6.0",
     "typescript": "^5.7.0"
-  }
+  },
+  "activationEvents": [
+    "onCommand:largeJsonlViewer.open",
+    "onCommand:largeJsonlViewer.preview",
+    "onCommand:largeJsonlViewer.previewPrevious",
+    "onCommand:largeJsonlViewer.previewNext",
+    "onCommand:largeJsonlViewer.previewGoToLine"
+  ],
+  "extensionKind": [
+    "workspace"
+  ]
 }
