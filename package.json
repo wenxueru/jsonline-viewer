@@ -3,7 +3,7 @@
   "displayName": "JSONLine Viewer",
   "description": "Fast, read-only JSONL/NDJSON row previews in VS Code with native JSON formatting and indexed large-file navigation.",
   "icon": "resources/icon.png",
-  "version": "0.1.4",
+  "version": "0.0.1",
   "publisher": "XueruWen",
   "license": "MIT",
   "repository": {
