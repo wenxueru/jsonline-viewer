@@ -1,7 +1,7 @@
-import { randomBytes } from "node:crypto";
 import { basename } from "node:path";
 import * as vscode from "vscode";
 import { IndexedLineFile } from "./lineFile";
+import { viewerHtml } from "./viewerHtml";
 
 type ClientMessage =
   | { type: "ready" }
@@ -37,13 +37,18 @@ export function activate(context: vscode.ExtensionContext): void {
         void vscode.window.showErrorMessage("JSONLine Viewer currently supports local and remote filesystem paths only.");
         return;
       }
-      const initialLine = editor?.document.uri.toString() === uri.toString()
-        ? editor.selection.active.line + 1
-        : 1;
-      const sourceDocument = editor?.document.uri.toString() === uri.toString()
-        ? editor.document
-        : undefined;
-      await nativePreview.open(uri, initialLine, sourceDocument);
+      const sourceEditor = editor?.document.uri.toString() === uri.toString() ? editor : undefined;
+      await ViewerPanel.create(
+        uri,
+        sourceEditor ? sourceEditor.selection.active.line + 1 : 1,
+        vscode.ViewColumn.Beside,
+        sourceEditor?.document,
+      );
+    }),
+    vscode.commands.registerCommand("largeJsonlViewer.previewJson", async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor || !isJsonLinesFile(editor.document.uri) || editor.document.uri.scheme !== "file") return;
+      await nativePreview.open(editor.document.uri, editor.selection.active.line + 1, editor.document);
     }),
     vscode.commands.registerCommand("largeJsonlViewer.previewPrevious", () => nativePreview.move(-1)),
     vscode.commands.registerCommand("largeJsonlViewer.previewNext", () => nativePreview.move(1)),
@@ -257,16 +262,19 @@ class ViewerPanel {
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     private currentLine: number,
+    private sourceDocument?: vscode.TextDocument,
   ) {}
 
   static async create(
     uri: vscode.Uri,
     initialLine = 1,
     column: vscode.ViewColumn = vscode.ViewColumn.Active,
+    sourceDocument?: vscode.TextDocument,
   ): Promise<void> {
     const key = uri.toString();
     const existing = ViewerPanel.openPanels.get(key);
     if (existing) {
+      if (sourceDocument) existing.sourceDocument = sourceDocument;
       existing.panel.reveal(column);
       await existing.goToLine(initialLine);
       return;
@@ -278,15 +286,23 @@ class ViewerPanel {
       column,
       { enableScripts: true, retainContextWhenHidden: false },
     );
-    const viewer = new ViewerPanel(panel, initialLine);
+    const viewer = new ViewerPanel(panel, initialLine, sourceDocument);
     ViewerPanel.openPanels.set(key, viewer);
-    panel.webview.html = viewer.html();
+    panel.webview.html = viewerHtml();
     viewer.disposables.push(
       panel.webview.onDidReceiveMessage((message: ClientMessage) => void viewer.receive(message)),
       vscode.window.onDidChangeTextEditorSelection((event) => {
-        if (event.textEditor.document.uri.toString() === key) {
-          void viewer.goToLine(event.selections[0].active.line + 1);
-        }
+        if (event.textEditor.document.uri.toString() !== key) return;
+        viewer.sourceDocument = event.textEditor.document;
+        void viewer.goToLine(event.selections[0].active.line + 1);
+      }),
+      vscode.workspace.onDidChangeTextDocument((event) => {
+        if (event.document.uri.toString() !== key) return;
+        viewer.sourceDocument = event.document;
+        void viewer.goToLine(viewer.currentLine);
+      }),
+      vscode.workspace.onDidCloseTextDocument((document) => {
+        if (viewer.sourceDocument === document) viewer.sourceDocument = undefined;
       }),
       panel.onDidDispose(() => {
         ViewerPanel.openPanels.delete(key);
@@ -300,17 +316,20 @@ class ViewerPanel {
       });
       await viewer.goToLine(viewer.currentLine);
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      void panel.webview.postMessage({ type: "fatal", message });
+      viewer.reportError(error);
     }
+  }
+
+  private get lineCount(): number {
+    return this.sourceDocument ? documentJsonlLineCount(this.sourceDocument) : this.indexed?.lineCount ?? 0;
   }
 
   private async receive(message: ClientMessage): Promise<void> {
     if (message.type === "ready") {
-      if (this.indexed) await this.showLine(this.currentLine);
+      if (this.indexed) await this.goToLine(this.currentLine);
       return;
     }
-    if (!this.indexed || this.indexed.lineCount === 0) return;
+    if (!this.indexed || this.lineCount === 0) return;
     const target = message.type === "move" ? this.currentLine + message.delta : message.line;
     await this.goToLine(target);
   }
@@ -318,11 +337,7 @@ class ViewerPanel {
   private async goToLine(line: number): Promise<void> {
     this.currentLine = Math.max(1, Math.trunc(line));
     if (!this.indexed) return;
-    if (this.indexed.lineCount === 0) {
-      await this.showLine(0);
-      return;
-    }
-    await this.showLine(Math.min(this.indexed.lineCount, this.currentLine));
+    await this.showLine(Math.min(this.lineCount, this.currentLine));
   }
 
   private async showLine(line: number): Promise<void> {
@@ -332,112 +347,23 @@ class ViewerPanel {
       return;
     }
     try {
-      const raw = await this.indexed.readLine(line);
+      const raw = this.sourceDocument?.lineAt(line - 1).text ?? await this.indexed.readLine(line);
       this.currentLine = line;
       void this.panel.webview.postMessage({
         type: "line",
         line,
-        lineCount: this.indexed.lineCount,
+        lineCount: this.lineCount,
         fileSize: this.indexed.size,
         byteLength: Buffer.byteLength(raw),
         raw,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      void this.panel.webview.postMessage({ type: "fatal", message });
+      this.reportError(error);
     }
   }
 
-  private html(): string {
-    const nonce = randomBytes(16).toString("hex");
-    return `<!doctype html>
-<html lang="en"><head><meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style nonce="${nonce}">
-  :root { color-scheme: light dark; }
-  body { margin: 0; color: var(--vscode-editor-foreground); background: var(--vscode-editor-background); font: 13px var(--vscode-font-family); }
-  header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-editor-background); }
-  button, input { color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, transparent); padding: 4px 8px; }
-  button { cursor: pointer; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-  button:disabled { opacity: .45; cursor: default; }
-  input { width: 90px; }
-  #status { margin-left: auto; opacity: .8; }
-  nav { padding: 8px 12px 0; }
-  .tab { background: transparent; color: var(--vscode-foreground); border: 0; border-bottom: 2px solid transparent; }
-  .tab.active { border-bottom-color: var(--vscode-focusBorder); }
-  main { padding: 10px 14px 40px; overflow-wrap: anywhere; }
-  pre { white-space: pre-wrap; word-break: break-word; font-family: var(--vscode-editor-font-family); font-size: var(--vscode-editor-font-size); }
-  details { margin-left: 14px; }
-  summary { cursor: pointer; line-height: 1.55; }
-  .key { color: var(--vscode-symbolIcon-propertyForeground, #9cdcfe); }
-  .string { color: var(--vscode-debugTokenExpression-string, #ce9178); }
-  .number { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
-  .boolean { color: var(--vscode-debugTokenExpression-boolean, #569cd6); }
-  .null { opacity: .65; font-style: italic; }
-  .error { color: var(--vscode-errorForeground); white-space: pre-wrap; }
-</style></head><body>
-<header><button id="prev">Previous</button><button id="next">Next</button><label>Line <input id="line" type="number" min="1" step="1"></label><button id="go">Go</button><span id="status">Indexing…</span></header>
-<nav><button class="tab active" data-mode="tree">Tree</button><button class="tab" data-mode="pretty">Pretty</button><button class="tab" data-mode="raw">Raw</button></nav>
-<main id="content">Building byte-offset index…</main>
-<script nonce="${nonce}">
-  const vscode = acquireVsCodeApi();
-  const content = document.getElementById('content');
-  const lineInput = document.getElementById('line');
-  const status = document.getElementById('status');
-  const prev = document.getElementById('prev');
-  const next = document.getElementById('next');
-  let current = 0, count = 0, raw = '', parsed, parseError, mode = 'tree';
-  const human = n => n < 1024 ? n + ' B' : n < 1048576 ? (n/1024).toFixed(1) + ' KiB' : (n/1048576).toFixed(1) + ' MiB';
-  function scalar(value) {
-    const span = document.createElement('span');
-    span.className = value === null ? 'null' : typeof value;
-    span.textContent = value === null ? 'null' : typeof value === 'string' ? JSON.stringify(value) : String(value);
-    return span;
-  }
-  function tree(value, name, root = false) {
-    if (value === null || typeof value !== 'object') {
-      const row = document.createElement('div');
-      if (name !== undefined) { const key = document.createElement('span'); key.className = 'key'; key.textContent = name + ': '; row.append(key); }
-      row.append(scalar(value)); return row;
-    }
-    const entries = Array.isArray(value) ? value.map((v, i) => [String(i), v]) : Object.entries(value);
-    const details = document.createElement('details'); details.open = root;
-    const summary = document.createElement('summary');
-    const label = name === undefined ? '' : name + ': ';
-    summary.textContent = label + (Array.isArray(value) ? 'Array' : 'Object') + ' (' + entries.length + ')';
-    details.append(summary);
-    // No arbitrary node ceiling: every value is represented and browser-native details provide folding.
-    for (const [key, child] of entries) details.append(tree(child, key));
-    return details;
-  }
-  function render() {
-    content.replaceChildren();
-    if (parseError && mode !== 'raw') { const e = document.createElement('div'); e.className = 'error'; e.textContent = parseError; content.append(e); return; }
-    if (mode === 'tree') content.append(tree(parsed, undefined, true));
-    else { const pre = document.createElement('pre'); pre.textContent = mode === 'pretty' ? JSON.stringify(parsed, null, 2) : raw; content.append(pre); }
-  }
-  function go() { const value = Number(lineInput.value); if (Number.isInteger(value)) vscode.postMessage({ type: 'goto', line: value }); }
-  prev.onclick = () => vscode.postMessage({ type: 'move', delta: -1 });
-  next.onclick = () => vscode.postMessage({ type: 'move', delta: 1 });
-  document.getElementById('go').onclick = go;
-  lineInput.onkeydown = event => { if (event.key === 'Enter') go(); };
-  for (const tab of document.querySelectorAll('.tab')) tab.onclick = () => {
-    mode = tab.dataset.mode; document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab)); render();
-  };
-  window.addEventListener('message', event => {
-    const message = event.data;
-    if (message.type === 'indexProgress') { status.textContent = 'Indexing ' + human(message.bytesRead) + ' / ' + human(message.totalBytes); return; }
-    if (message.type === 'fatal') { content.textContent = ''; const e = document.createElement('div'); e.className = 'error'; e.textContent = message.message; content.append(e); return; }
-    if (message.type === 'empty') { status.textContent = 'Empty file'; prev.disabled = next.disabled = true; content.textContent = 'This file has no lines.'; return; }
-    if (message.type !== 'line') return;
-    current = message.line; count = message.lineCount; raw = message.raw; lineInput.value = current; lineInput.max = count;
-    prev.disabled = current <= 1; next.disabled = current >= count;
-    status.textContent = current.toLocaleString() + ' / ' + count.toLocaleString() + ' · line ' + human(message.byteLength) + ' · file ' + human(message.fileSize);
-    try { parsed = JSON.parse(raw); parseError = undefined; } catch (error) { parsed = undefined; parseError = 'Invalid JSON on line ' + current + ': ' + error.message; }
-    render();
-  });
-  vscode.postMessage({ type: 'ready' });
-</script></body></html>`;
+  private reportError(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    void this.panel.webview.postMessage({ type: "fatal", message });
   }
 }

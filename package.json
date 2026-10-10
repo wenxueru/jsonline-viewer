@@ -3,7 +3,7 @@
   "displayName": "JSONLine Viewer",
   "description": "Fast, read-only JSONL/NDJSON row previews in VS Code with native JSON formatting and indexed large-file navigation.",
   "icon": "resources/icon.png",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "publisher": "XueruWen",
   "license": "MIT",
   "repository": {
@@ -38,6 +38,10 @@
         "command": "largeJsonlViewer.preview",
         "title": "JSONLine Viewer: Preview",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "largeJsonlViewer.previewJson",
+        "title": "JSONLine Viewer: Native JSON Preview"
       },
       {
         "command": "largeJsonlViewer.previewPrevious",
@@ -77,13 +81,6 @@
           "when": "resourceScheme == jsonline-preview",
           "group": "navigation@12"
         }
-      ],
-      "explorer/context": [
-        {
-          "command": "largeJsonlViewer.open",
-          "when": "resourceExtname == .jsonl || resourceExtname == .ndjson",
-          "group": "navigation@20"
-        }
       ]
     }
   },
@@ -94,9 +91,11 @@
     "package": "npm run clean && npm run test && vsce package --no-dependencies --out large-jsonl-viewer.vsix"
   },
   "devDependencies": {
+    "@types/jsdom": "^21.1.7",
     "@types/node": "^20.17.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.6.0",
+    "jsdom": "^26.1.0",
     "typescript": "^5.7.0"
   },
   "activationEvents": [
@@ -104,7 +103,8 @@
     "onCommand:largeJsonlViewer.preview",
     "onCommand:largeJsonlViewer.previewPrevious",
     "onCommand:largeJsonlViewer.previewNext",
-    "onCommand:largeJsonlViewer.previewGoToLine"
+    "onCommand:largeJsonlViewer.previewGoToLine",
+    "onCommand:largeJsonlViewer.previewJson"
   ],
   "extensionKind": [
     "workspace"
