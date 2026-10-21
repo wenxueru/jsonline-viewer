@@ -12,10 +12,11 @@
 
 ![Pretty preview with colored JSON values and a multiline string](resources/preview.png)
 
-*Illustrated Pretty preview, generated from the actual renderer with fictional sample data.*
+*Pretty preview captured from the actual renderer with fictional sample data.*
 
 ## Why JSONLine Viewer?
 
+- **A calmer reading surface.** Transparent backgrounds with subtle reading surfaces, distinct JSON colors, and a compact record toolbar, with light and high contrast theme support.
 - **Pretty by default.** Open a record with JSON syntax highlighting. Newlines and tabs inside strings display as actual whitespace.
 - **Follow the cursor.** Move between source rows or edit a record; the preview follows, including unsaved edits.
 - **Browse large files.** Index byte offsets once, then read the selected record without retaining the complete file in memory.
@@ -30,7 +31,7 @@ After installing the extension:
 2. Place the cursor on a record.
 3. Click the **Preview** icon in the editor's upper-right toolbar.
 
-A **Pretty** preview opens beside the source. Use **Previous**, **Next**, or **Line → Go** to navigate.
+A **Pretty** preview opens beside the source. Use the **previous / next arrows**, or enter a **Record** number and press **Go**, to navigate.
 
 To browse a large file without opening it as text, run **JSONLine Viewer: Open File** from the Command Palette. The viewer performs one indexing pass and opens in Pretty mode. The Explorer right-click menu stays unchanged.
 

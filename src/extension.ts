@@ -288,7 +288,7 @@ class ViewerPanel {
     );
     const viewer = new ViewerPanel(panel, initialLine, sourceDocument);
     ViewerPanel.openPanels.set(key, viewer);
-    panel.webview.html = viewerHtml();
+    panel.webview.html = viewerHtml(basename(uri.fsPath));
     viewer.disposables.push(
       panel.webview.onDidReceiveMessage((message: ClientMessage) => void viewer.receive(message)),
       vscode.window.onDidChangeTextEditorSelection((event) => {
