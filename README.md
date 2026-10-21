@@ -1,6 +1,7 @@
 <div align="center">
   <img src="resources/icon.png" alt="JSONLine Viewer icon" width="112" height="112">
   <h1>JSONLine Viewer</h1>
+  <p><strong>English</strong> | <a href="README.zh-CN.md">简体中文</a></p>
   <p><strong>One record at a time. Easier to read. Ready for large files.</strong></p>
   <p>A read-only VS Code extension for inspecting <code>.jsonl</code> and <code>.ndjson</code> files.</p>
   <p>
