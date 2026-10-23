@@ -11,55 +11,57 @@
   </p>
 </div>
 
-![Pretty preview with colored JSON values and a multiline string](resources/preview.png)
-
-*Pretty preview captured from the actual renderer with fictional sample data.*
-
-## Why JSONLine Viewer?
-
-- **A calmer reading surface.** Transparent backgrounds with subtle reading surfaces, distinct JSON colors, and a compact record toolbar, with light and high contrast theme support.
-- **Pretty by default.** Open a record with JSON syntax highlighting. Newlines and tabs inside strings display as actual whitespace.
-- **Follow the cursor.** Move between source rows or edit a record; the preview follows, including unsaved edits.
-- **Browse large files.** Index byte offsets once, then read the selected record without retaining the complete file in memory.
-- **Choose your view.** Use Pretty for reading, Tree for folding objects, and Raw for the exact source line.
-- **Keep browsing through errors.** A malformed record shows its parse error without blocking other rows.
-
-## Quick start
-
-After installing the extension:
-
-1. Open a `.jsonl` or `.ndjson` file.
-2. Place the cursor on a record.
-3. Click the **Preview** icon in the editor's upper-right toolbar.
-
-A **Pretty** preview opens beside the source. Use the **previous / next arrows**, or enter a **Record** number and press **Go**, to navigate.
-
-To browse a large file without opening it as text, run **JSONLine Viewer: Open File** from the Command Palette. The viewer performs one indexing pass and opens in Pretty mode. The Explorer right-click menu stays unchanged.
-
-### Try a sample
-
-Save this one-line record as `sample.jsonl` and click **Preview**:
-
-```json
-{"id":"sample-001","score":0.98,"is_reasoning":true,"messages":[{"role":"user","content":"Explain this record.\nKeep the answer short."}],"metadata":null}
-```
-
-Pretty displays the content string on two lines. Switch to Raw to see the original `\n` escape.
-
-## Views
-
-| View | Use it for |
+| Dark | Light |
 | --- | --- |
-| **Pretty** · default | Highlighted, indented JSON with readable line breaks and tabs in strings |
-| **Tree** | Expand or collapse objects and arrays |
-| **Raw** | The unchanged source record, including JSON escapes |
-| **Native JSON Preview** | VS Code's JSON editor: folding, bracket matching, diagnostics, and Find |
+| ![Dark preview](resources/preview.png) | ![Light preview](resources/preview-light.png) |
 
-Run **JSONLine Viewer: Native JSON Preview** while the source file is active. Its editor-title arrows and **Go to Row** command navigate between records; the status bar shows the current row and total count.
+*Rendered from the fictional records in [examples/sample.jsonl](examples/sample.jsonl).*
 
-## Install from source
+## Try it
 
-Requires **Node.js 20+** for development and **VS Code 1.85+** to run the extension.
+1. Open [examples/sample.jsonl](examples/sample.jsonl) in VS Code, or use any `.jsonl` / `.ndjson` file.
+2. Place the cursor on a record and click **Preview** in the editor toolbar, or run **JSONLine Viewer: Preview** from the Command Palette.
+3. Read the record in the side panel. Move the source cursor, use the previous / next arrows, or enter a **Record** number and click **Go**.
+
+The preview follows source edits, including unsaved changes. Each physical line is a separate JSON record.
+
+The included sample contains three records:
+
+| Record | Try this |
+| --- | --- |
+| 1 | Fold `messages` or `metadata`; read multiline English and Chinese text in Pretty. |
+| 2 | Expand nested arrays and inspect empty objects, empty arrays, and a literal `\n`. |
+| 3 | Switch to Raw to inspect whitespace, duplicate keys, a large integer, and exponent notation exactly as written. |
+
+All sample content is fictional and contains no credentials or personal data.
+
+## Views and controls
+
+| View | Purpose |
+| --- | --- |
+| **Pretty** · default | Indented, highlighted JSON. Objects and arrays can be folded; string line breaks and tabs display as actual whitespace. |
+| **Tree** | Explore objects and arrays as expandable fields. |
+| **Raw** | Highlighted original text, preserving whitespace, escapes, duplicate keys, and numeric precision. |
+| **Native JSON Preview** | Use VS Code's JSON editor for folding, bracket matching, diagnostics, and Find. |
+
+- **Folding:** Pretty and Tree support individual toggles and **Expand all / Collapse all**. Each view retains its fold state while switching views within the same record.
+- **Invalid records:** Pretty and Tree show the parse error. Raw remains available, and navigation still works.
+- **Native preview:** with the source editor active, run **JSONLine Viewer: Native JSON Preview**. Navigate with its editor-title arrows or **Go to Row...**.
+- **Appearance:** automatically follows the current VS Code theme, including dark, light, and high contrast. Theme changes apply immediately. A compact toolbar keeps navigation and folding close to the content; record details sit in the footer.
+
+Pretty and Tree display parsed JSON. Use Raw whenever exact source representation matters.
+
+## Large files
+
+Run **JSONLine Viewer: Open File** to browse without opening the entire file in the text editor.
+
+- One scan builds a byte-offset index; navigation then reads only the selected record.
+- Indexing time grows with file size, index memory with row count, and rendering memory with the current record's size.
+- All views are read-only and support filesystem-backed `file:` URIs, including files on a Remote SSH host.
+
+## Build and install
+
+Requires **Node.js 20+** to build and **VS Code 1.85+** to run.
 
 ```bash
 npm ci
@@ -67,24 +69,22 @@ npm run package
 code --install-extension ./large-jsonl-viewer.vsix --force
 ```
 
-The package command compiles the extension, runs the tests, and creates `large-jsonl-viewer.vsix`. Reload the VS Code window after installation.
+Run **Developer: Reload Window** after installation. To open the sample locally:
 
-**Remote SSH:** install the VSIX in the connected remote environment so the extension runs on the host that contains your files, then reload that window.
+```bash
+code examples/sample.jsonl
+```
+
+For **Remote SSH**, install the VSIX in the connected remote environment, then reload that window. The extension must run on the host containing the file.
 
 ## Development
 
-```bash
-npm run compile
-npm test
-```
-
-Tests cover LF/CRLF indexing, empty files, and a generated file larger than 50 MiB with records exceeding 1 MiB. DOM tests cover syntax highlighting, string whitespace, Raw source preservation, mode switching, navigation, invalid JSON, and HTML-like strings in large records.
-
-## Limits
-
-- All views are read-only and accept filesystem-backed `file:` URIs, including paths on a Remote SSH extension host.
-- Indexing is linear in file size. Index memory grows with the number of rows; navigating reads only the requested record.
-- Pretty unescapes string whitespace for display. Use **Raw** when you need the unchanged JSON source.
+| Command | Action |
+| --- | --- |
+| `npm run compile` | Type-check and compile into `dist/`. |
+| `npm test` | Compile and run indexing and viewer behavior tests. |
+| `npm run package` | Clean, compile, test, and create `large-jsonl-viewer.vsix`. |
+| `npm run clean` | Remove generated build and package output. |
 
 ## License
 

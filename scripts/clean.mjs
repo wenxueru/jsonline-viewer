@@ -1,3 +1,5 @@
 import { rm } from "node:fs/promises";
 
-await rm(new URL("../dist", import.meta.url), { recursive: true, force: true });
+for (const name of ["dist", "large-jsonl-viewer.vsix"]) {
+  await rm(new URL(`../${name}`, import.meta.url), { recursive: true, force: true });
+}

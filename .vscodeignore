@@ -6,4 +6,5 @@ node_modules/**
 dist/**/*.map
 dist/test/**
 *.vsix
+AGENTS.md
 commit.tmp

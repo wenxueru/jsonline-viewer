@@ -46,25 +46,6 @@ test("opens in Pretty with colored JSON tokens and readable string whitespace", 
   assert.equal(view.content.querySelector(".null")?.textContent, "null");
 });
 
-test("Raw preserves exact source, Tree folds, and navigation keeps the selected mode", t => {
-  const view = viewer(t);
-  const raw = '  {"text":"line 1\\nline 2","nested":{"value":42}}  ';
-  view.load(raw);
-  view.click("raw");
-  assert.equal(view.content.textContent, raw);
-  view.load('{"next":true}', 2);
-  assert.equal(view.content.textContent, '{"next":true}');
-  assert.equal((view.document.getElementById("next") as HTMLButtonElement).disabled, true);
-  view.click("tree");
-  assert.equal(view.content.querySelector("details")?.open, true);
-  view.load(raw);
-  assert.equal(view.content.querySelectorAll("details")[1].open, false);
-  view.click("pretty");
-  assert.equal(view.content.querySelector(".string")?.textContent, '"line 1\nline 2"');
-  (view.document.getElementById("next") as HTMLButtonElement).click();
-  assert.deepEqual(view.sent.at(-1), { type: "move", delta: 1 });
-});
-
 test("handles malformed and empty files, and recovers when the next row is valid", t => {
   const view = viewer(t);
   view.click("tree"); // No row yet: retain the indexing message.
@@ -81,15 +62,6 @@ test("handles malformed and empty files, and recovers when the next row is valid
   view.click("tree");
   view.click("pretty");
   assert.equal(view.content.textContent, "This file has no lines.");
-});
-
-test("renders HTML-like strings and escaped quotes as text, including large records", t => {
-  const view = viewer(t);
-  const payload = '<img src=x onerror="alert(1)"></script><script>window.injected=true</script>\n' + "x".repeat(1024 * 1024);
-  view.load(JSON.stringify({ text: payload }));
-  assert.equal(view.content.querySelector("img, script"), null);
-  assert.equal(view.content.querySelector(".string")?.textContent, JSON.stringify(payload).replace('\\n', '\n'));
-  assert.equal(view.content.querySelectorAll(".string").length, 1);
 });
 
 test("tabs support keyboard navigation and expose the selected panel to assistive technology", t => {
@@ -134,6 +106,15 @@ test("navigation validates row bounds and disables controls while no record is a
   view.load('{"value":1}', 2, 3);
   assert.equal(view.content.getAttribute("aria-busy"), "false");
   for (const control of [input, go, prev, next]) assert.equal(control.disabled, false);
+  view.click("raw");
+  next.click();
+  assert.deepEqual(view.sent.at(-1), { type: "move", delta: 1 });
+  view.load('{"value":2}', 3, 3);
+  assert.equal(view.document.querySelector(".tab.active")?.getAttribute("data-mode"), "raw");
+  assert.equal(view.content.textContent, '{"value":2}');
+  assert.equal(next.disabled, true);
+  prev.click();
+  assert.deepEqual(view.sent.at(-1), { type: "move", delta: -1 });
   const sentBeforeInvalidInput = view.sent.length;
   for (const value of ["", "0", "-1", "1.5", "4"]) {
     input.value = value;
@@ -160,15 +141,105 @@ test("navigation validates row bounds and disables controls while no record is a
   assertDisabled();
 });
 
-test("file names and tree fields remain inert text inside the webview", t => {
+test("file names and JSON fields remain inert text in every mode, including large records", t => {
   const fileName = '\"><img src=x onerror="window.injected=true"> & records.jsonl';
   const view = viewer(t, fileName);
+  const key = '<script>window.injected=true</script>';
+  const text = '<img src=x onerror="alert(1)"></script><script>window.injected=true</script>' + "x".repeat(1024 * 1024);
   assert.equal(view.document.querySelector(".file-name")?.textContent, fileName);
   assert.equal(view.document.querySelector(".file-name")?.getAttribute("title"), fileName);
-  view.load(JSON.stringify({ '<script>window.injected=true</script>': '<img src=x onerror="alert(1)">' }));
+  view.load(JSON.stringify({ [key]: text }));
+  for (const mode of ["pretty", "tree", "raw"]) {
+    view.click(mode);
+    assert.equal(view.content.querySelector("img, script"), null);
+    assert.ok(view.content.textContent?.includes(key));
+    assert.equal(view.content.querySelector(".string")?.textContent, JSON.stringify(text));
+  }
+});
+
+test("Pretty folds nested values, preserves state across tabs, and resets for changed records", t => {
+  const view = viewer(t);
+  const value = { nested: { list: [{ text: 'braces {} [] and \\"quotes\\"', empty: {} }, []] }, tail: true };
+  const raw = JSON.stringify(value);
+  view.load(raw);
+  const pre = view.content.querySelector("pre")!;
+  assert.equal(pre.textContent, JSON.stringify(value, null, 2));
+  const toggles = [...pre.querySelectorAll<HTMLButtonElement>(".fold-toggle")];
+  assert.equal(toggles.length, 4); // Empty objects and arrays need no folding control.
+  assert.equal((view.document.getElementById("fold-controls") as HTMLElement).hidden, false);
+  const nested = toggles[1];
+  const body = view.document.getElementById(nested.getAttribute("aria-controls")!)!;
+  assert.equal(nested.parentElement?.querySelector(".key")?.textContent, '"nested":');
+  nested.click();
+  assert.equal(nested.getAttribute("aria-expanded"), "false");
+  assert.equal(body.hidden, true);
+  assert.equal(nested.getAttribute("aria-label"), "Expand object");
+  assert.equal((nested.parentElement?.querySelector(".fold-placeholder") as HTMLElement).hidden, false);
+  assert.equal((pre.querySelector(".pretty-body") as HTMLElement).hidden, false);
+  view.click("raw");
+  assert.equal((view.document.getElementById("fold-controls") as HTMLElement).hidden, true);
+  view.click("pretty");
+  assert.equal(view.content.querySelectorAll(".fold-toggle")[1].getAttribute("aria-expanded"), "false");
+  (view.document.getElementById("collapse-all") as HTMLButtonElement).click();
+  for (const toggle of view.content.querySelectorAll(".fold-toggle")) assert.equal(toggle.getAttribute("aria-expanded"), "false");
+  (view.document.getElementById("expand-all") as HTMLButtonElement).click();
+  for (const toggle of view.content.querySelectorAll(".fold-toggle")) assert.equal(toggle.getAttribute("aria-expanded"), "true");
+  view.content.querySelectorAll<HTMLButtonElement>(".fold-toggle")[1].click();
+  view.load(raw); // A repeated update for the same record keeps its fold state.
+  assert.equal(view.content.querySelectorAll(".fold-toggle")[1].getAttribute("aria-expanded"), "false");
+  view.load('{"changed":[1,2]}');
+  assert.equal(view.content.querySelector("pre")?.textContent, '{\n  "changed": [\n    1,\n    2\n  ]\n}');
+  assert.equal(view.content.querySelector(".fold-toggle")?.getAttribute("aria-expanded"), "true");
+  view.load(raw, 2);
+  assert.equal(view.content.querySelectorAll(".fold-toggle").length, 4);
+  assert.equal(view.content.querySelectorAll(".pretty-body[hidden]").length, 0);
+});
+
+test("Raw highlights source without changing escapes, number precision, duplicate keys, or malformed text", t => {
+  const view = viewer(t);
+  const raw = String.raw`  { "text" : "a\n\t\u4e2d\\b\"<img>{}", "n":9007199254740993, "n":1.00e+09, "bool":false, "nil":null }  `;
+  view.load(raw);
+  view.click("raw");
+  assert.equal(view.content.textContent, raw);
+  assert.deepEqual([...view.content.querySelectorAll(".number")].map(node => node.textContent), ["9007199254740993", "1.00e+09"]);
+  assert.equal(view.content.querySelector(".key")?.textContent, '"text" :');
+  assert.equal(view.content.querySelector(".string")?.textContent, String.raw`"a\n\t\u4e2d\\b\"<img>{}"`);
+  assert.equal(view.content.querySelector(".boolean")?.textContent, "false");
+  assert.equal(view.content.querySelector(".null")?.textContent, "null");
+  assert.equal(view.content.querySelector("img"), null);
+  view.load('{"broken": true, "number": -2.5e-3, "unterminated');
+  assert.equal(view.content.textContent, '{"broken": true, "number": -2.5e-3, "unterminated');
+  assert.equal(view.content.querySelector(".boolean")?.textContent, "true");
+  assert.equal(view.content.querySelector(".number")?.textContent, "-2.5e-3");
+  assert.equal(view.content.querySelector(".error"), null);
+  view.click("pretty");
+  assert.match(view.content.querySelector(".error")?.textContent!, /Invalid JSON/);
+  assert.equal((view.document.getElementById("fold-controls") as HTMLElement).hidden, true);
+});
+
+test("bulk folding works in Tree and controls disappear for scalar, empty, and fatal states", t => {
+  const view = viewer(t);
+  view.load('{"nested":{"list":[1,2]}}');
   view.click("tree");
-  assert.equal(view.document.querySelector("img"), null);
-  assert.equal(view.document.querySelectorAll("script").length, 1);
-  assert.equal(view.content.querySelector(".key")?.textContent, "<script>window.injected=true</script>: ");
-  assert.equal(view.content.querySelector(".string")?.textContent, JSON.stringify('<img src=x onerror="alert(1)">'));
+  const branches = [...view.content.querySelectorAll("details")];
+  assert.deepEqual(branches.map(branch => branch.open), [true, false, false]);
+  (view.document.getElementById("expand-all") as HTMLButtonElement).click();
+  assert.equal(view.content.querySelectorAll("details[open]").length, 3);
+  (view.document.getElementById("collapse-all") as HTMLButtonElement).click();
+  assert.equal(view.content.querySelectorAll("details[open]").length, 0);
+  view.click("pretty");
+  view.click("tree");
+  assert.equal(view.content.querySelectorAll("details[open]").length, 0);
+  view.click("pretty");
+  for (const source of ['null', '42', '"text"', '{}', '[]']) {
+    view.load(source);
+    assert.equal((view.document.getElementById("fold-controls") as HTMLElement).hidden, true);
+    assert.equal(view.content.textContent, source);
+  }
+  view.load('{"nested":[1]}');
+  view.receive({ type: "empty" });
+  assert.equal((view.document.getElementById("fold-controls") as HTMLElement).hidden, true);
+  view.load('{"nested":[1]}');
+  view.receive({ type: "fatal", message: "Unable to read" });
+  assert.equal((view.document.getElementById("fold-controls") as HTMLElement).hidden, true);
 });

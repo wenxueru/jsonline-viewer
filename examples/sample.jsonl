@@ -1,0 +1,3 @@
+{"id":"sample-001","title":"Nested data / 嵌套数据","score":0.98,"active":true,"messages":[{"role":"user","content":"Explain this record.\nKeep the answer short.\n第一行\t第二列"},{"role":"assistant","content":"Objects and arrays can be folded."}],"metadata":{"tags":["demo","jsonl"],"optional":null}}
+{"id":"sample-002","items":[{"name":"Alpha","values":[1,2,3]},{"name":"Beta","values":[4,5]}],"empty_object":{},"empty_array":[],"literal_escape":"literal\\n"}
+  {"id":"sample-003","large_integer":9007199254740993,"decimal":1.00e+09,"label":"first","label":"second","escaped":"line 1\nline 2"}  
